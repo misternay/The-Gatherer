@@ -1,64 +1,62 @@
 import numpy as np
-import win32gui, win32ui, win32con
-
+from Quartz import CGWindowListCopyWindowInfo, kCGWindowListOptionOnScreenOnly, kCGNullWindowID
+from Quartz import CGDisplayBounds
+from Quartz import CGImageGetHeight, CGImageGetWidth, NSMakeRect, CGRectContainsRect
+from Quartz import CGWindowListCreateImage, kCGWindowImageDefault, CGImageGetDataProvider, CGDataProviderCopyData
+from AppKit import NSApplication, NSRunningApplication, NSWorkspace
 class WindowCapture:
-    
-    #Properties
+
+    # Properties
     w = 0
     h = 0
     hwnd = None
     offset_x = 0
     offset_y = 0
 
-
     def __init__(self, window_name=None, width=1024, height=768):
-        
+
         if window_name is None:
-            self.hwnd = win32gui.GetDesktopWindow()
+            self.hwnd = kCGNullWindowID
         else:
-        #Call specific window to capture
-            self.hwnd = win32gui.FindWindow(None, window_name)
+            window_infos = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID)
+            for window_info in window_infos:
+                window_title = window_info.get('kCGWindowName', '')
+                if window_title == window_name:
+                    self.hwnd = window_info['kCGWindowNumber']
+                    break
+
             if not self.hwnd:
                 raise Exception("Window not found: {}".format(window_name))
-        
-        #Define monitor dimentions
-        self.w = width #1366
-        self.h = height #768
-    
+
+        # Define monitor dimensions
+        self.w = width
+        self.h = height
+
     def get_screenshot(self):
-        #bmpfilenamename = "out.bmp" #set this
+        window_rect = CGDisplayBounds(self.hwnd)
+        image = CGWindowListCreateImage(window_rect, kCGWindowListOptionOnScreenOnly, self.hwnd, kCGWindowImageDefault)
 
-        wDC = win32gui.GetWindowDC(self.hwnd)
-        dcObj = win32ui.CreateDCFromHandle(wDC)
-        cDC = dcObj.CreateCompatibleDC()
-        dataBitMap = win32ui.CreateBitmap()
-        dataBitMap.CreateCompatibleBitmap(dcObj, self.w, self.h)
-        cDC.SelectObject(dataBitMap)
-        cDC.BitBlt((0,0),(self.w, self.h) , dcObj, (0,0), win32con.SRCCOPY)
+        width = CGImageGetWidth(image)
+        height = CGImageGetHeight(image)
 
-        signedIntsArray = dataBitMap.GetBitmapBits(True)
-        img = np.fromstring(signedIntsArray, dtype = "uint8")
-        img.shape = (self.h,self.w,4)
-        #save screenshot
-        #dataBitMap.SaveBitmapFile(cDC, bmpfilenamename)
+        data_provider = CGImageGetDataProvider(image)
+        bitmap_data = CGDataProviderCopyData(data_provider)
 
-        # Free Resources
-        dcObj.DeleteDC()
-        cDC.DeleteDC()
-        win32gui.ReleaseDC(self.hwnd, wDC)
-        win32gui.DeleteObject(dataBitMap.GetHandle())
-        
-        img = img[...,:3]
+        np_image = np.frombuffer(bitmap_data, dtype=np.uint8)
+        np_image.shape = (height, width, 4)
+
+        img = np_image[..., :3]
         img = np.ascontiguousarray(img)
-        
+
         return img
-    
+
     @staticmethod
     def list_window_names():
-        def winEnumHandler(hwnd, ctx):
-            if win32gui.IsWindowVisible(hwnd):
-                print(hex(hwnd), win32gui.GetWindowText(hwnd))
-        win32gui.EnumWindows(winEnumHandler, None)
+        window_infos = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID)
+        for window_info in window_infos:
+            window_title = window_info.get('kCGWindowName', '')
+            if window_title:
+                print(hex(window_info['kCGWindowNumber']), window_title)
 
     def get_screen_position(self, pos):
         return (pos[0] + self.offset_x, pos[1] + self.offset_y)
